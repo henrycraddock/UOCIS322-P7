@@ -1,0 +1,20 @@
+<html>
+<head>
+    <title>Results</title>
+</head>
+<body>
+<div>
+    <h1>Results</h1>
+</div>
+    <div>
+            {% for control in items %}
+            <div>
+                <p>{{ control.index + 1 }}: &ensp; miles: {{ control.miles }} &ensp; km: {{ control.km }}
+                    &ensp; location: {{ control.location }} &ensp; open: {{ control.open }}
+                    &ensp; close: {{ control.close }}</p>
+                <hl />
+            </div>
+            {% endfor %}
+        </div>
+</body>
+</html>
