@@ -89,42 +89,42 @@ class listCloseOnly(Resource):
         return json_form(items, topk)
 
 
+class register(Resource):
+    def post(self, id, username, password):
+        hashed = pwd_context.encrypt(password)
+        if not pwd_context.verify(password, hashed):
+            return Response(status=400)
+        if db.userstable.find_one({'username': username}) or db.userstable.find_one({'password': hashed}):
+            return Response(status=400)
+        item = {
+            'id': id,
+            'username': username,
+            'password': hashed
+        }
+        db.userstable.insert_one(item)
+        return Response(flask.jsonify(item), status=201)
+
+
+class token(Resource):
+    def get(self, username, password, expiration=600):
+        hashed = pwd_context.encrypt(password)
+        if not pwd_context.verify(password, hashed):
+            return Response(status=400)
+        s = Serializer(SECRET_KEY, expires_in=expiration)
+        token = s.dumps({'id': id, 'username': username, 'password': hashed})
+        item = {
+            'token': token,
+            'duration': expiration
+        }
+        return flask.jsonify(item)
+
+
 # Create routes
 api.add_resource(listAll, '/listAll', '/listAll/<string:dtype>')
 api.add_resource(listOpenOnly, '/listOpenOnly', '/listOpenOnly/<string:dtype>')
 api.add_resource(listCloseOnly, '/listCloseOnly', '/listCloseOnly/<string:dtype>')
-
-
-@app.route("/register", methods=["POST"])
-def register(id, username, password):
-    """Register a new user, check for potential errors"""
-    hashed = pwd_context.encrypt(password)
-    if not pwd_context.verify(password, hashed):
-        return Response(status=400)
-    if db.userstable.find_one({'username': username}) or db.userstable.find_one({'password': hashed}):
-        return Response(status=400)
-    item = {
-        'id': id,
-        'username': username,
-        'password': hashed
-    }
-    db.userstable.insert_one(item)
-    return Response(flask.jsonify(item), status=201)
-
-
-@app.route("/token", methods=["GET"])
-def token(id, username, password, expiration=600):
-    """Create a token for API use"""
-    hashed = pwd_context.encrypt(password)
-    if not pwd_context.verify(password, hashed):
-        return Response(status=400)
-    s = Serializer(SECRET_KEY, expires_in=expiration)
-    token = s.dumps({'id': id, 'username': username, 'password': hashed})
-    item = {
-        'token': token,
-        'duration': expiration
-    }
-    return flask.jsonify(item)
+api.add_resource(register, '/register')
+api.add_resource(token, '/token')
 
 
 # Run the application
