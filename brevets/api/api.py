@@ -1,5 +1,6 @@
 import os
 import flask
+from datetime import datetime
 from flask import Flask, request, Response
 from flask_restful import Resource, Api
 from pymongo import MongoClient
@@ -57,7 +58,8 @@ def verify_auth_token(token):
 
 # Create resources
 class listAll(Resource):
-    def get(self, token, dtype='json'):
+    def get(self, dtype='json'):
+        token = request.args.get('token')
         if not verify_auth_token(token):
             return Response(status=401)
         topk = int(request.args.get('top', default=-1))
@@ -68,7 +70,8 @@ class listAll(Resource):
 
 
 class listOpenOnly(Resource):
-    def get(self, token, dtype='json'):
+    def get(self, dtype='json'):
+        token = request.args.get('token')
         if not verify_auth_token(token):
             return Response(status=401)
         topk = int(request.args.get('top', default=-1))
@@ -79,7 +82,8 @@ class listOpenOnly(Resource):
 
 
 class listCloseOnly(Resource):
-    def get(self, token, dtype='json'):
+    def get(self, dtype='json'):
+        token = request.args.get('token')
         if not verify_auth_token(token):
             return Response(status=401)
         topk = int(request.args.get('top', default=-1))
@@ -90,14 +94,13 @@ class listCloseOnly(Resource):
 
 
 class register(Resource):
-    def post(self, id, username, password):
+    def post(self, username, password):
         hashed = pwd_context.encrypt(password)
         if not pwd_context.verify(password, hashed):
             return Response(status=400)
         if db.userstable.find_one({'username': username}) or db.userstable.find_one({'password': hashed}):
             return Response(status=400)
         item = {
-            'id': id,
             'username': username,
             'password': hashed
         }
@@ -110,8 +113,11 @@ class token(Resource):
         hashed = pwd_context.encrypt(password)
         if not pwd_context.verify(password, hashed):
             return Response(status=400)
+        if not db.userstable.find_one({'username': username}) or db.userstable.find_one({'password': hashed}):
+            return Response(status=400)
         s = Serializer(SECRET_KEY, expires_in=expiration)
-        token = s.dumps({'id': id, 'username': username, 'password': hashed})
+        token = s.dumps({'id': db.userstable.find_one({'username': username}, {'_id': 1}),
+                         'username': username, 'datetime': datetime.now()})
         item = {
             'token': token,
             'duration': expiration
@@ -123,8 +129,8 @@ class token(Resource):
 api.add_resource(listAll, '/listAll', '/listAll/<string:dtype>')
 api.add_resource(listOpenOnly, '/listOpenOnly', '/listOpenOnly/<string:dtype>')
 api.add_resource(listCloseOnly, '/listCloseOnly', '/listCloseOnly/<string:dtype>')
-api.add_resource(register, '/register')
-api.add_resource(token, '/token')
+api.add_resource(register, '/register/<string:username>/<string:password>')
+api.add_resource(token, '/token/<string:username>/<string:password>')
 
 
 # Run the application
