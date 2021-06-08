@@ -1,7 +1,6 @@
-Flask==2.0.2
+Flask==1.1.2
 Flask-Login==0.4.1
 wtforms==2.3.3
 Flask-WTF==0.15.1
 requests
-pymongo
 passlib==1.7.1
