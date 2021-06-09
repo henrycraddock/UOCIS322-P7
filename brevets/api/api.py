@@ -110,12 +110,12 @@ class register(Resource):
             abort(400)
         item = {
             'username': username,
-            'password': hashed
+            'password': str(hashed)
         }
         db.userstable.insert_one(item)
         app.logger.debug("User successfully added")
         # app.logger.debug(f"{db.userstable.find_one({'username': username})}")
-        return Response(status=201)
+        return flask.jsonify(item), 201
 
 
 class token(Resource):
@@ -134,7 +134,7 @@ class token(Resource):
         token = s.dumps({'id': random.randint(0, 100), 'username': username})
         app.logger.debug("Token successfully created")
         item = {
-            'token': token,
+            'token': str(token),
             'duration': expiration
         }
         return flask.jsonify(item)
