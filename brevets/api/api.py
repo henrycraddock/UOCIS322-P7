@@ -1,7 +1,8 @@
 import os
+import random
+
 import flask
-from datetime import datetime
-from flask import Flask, request, Response
+from flask import Flask, request, abort, Response
 from flask_restful import Resource, Api
 from pymongo import MongoClient
 from passlib.apps import custom_app_context as pwd_context
@@ -73,7 +74,7 @@ class listOpenOnly(Resource):
     def get(self, dtype='json'):
         token = request.args.get('token')
         if not verify_auth_token(token):
-            return Response(status=401)
+            abort(401)
         topk = int(request.args.get('top', default=-1))
         items = list(db.timestable.find({}, {'_id': 0, 'index': 0, 'km': 0, 'miles': 0, 'location': 0, 'close': 0}))
         if dtype == 'csv':
@@ -85,7 +86,7 @@ class listCloseOnly(Resource):
     def get(self, dtype='json'):
         token = request.args.get('token')
         if not verify_auth_token(token):
-            return Response(status=401)
+            abort(401)
         topk = int(request.args.get('top', default=-1))
         items = list(db.timestable.find({}, {'_id': 0, 'index': 0, 'km': 0, 'miles': 0, 'location': 0, 'open': 0}))
         if dtype == 'csv':
@@ -94,30 +95,44 @@ class listCloseOnly(Resource):
 
 
 class register(Resource):
-    def post(self, username, password):
-        hashed = pwd_context.encrypt(password)
+    def post(self):
+        app.logger.debug("Got a POST request")
+        username = str(request.args.get('u'))
+        password = str(request.args.get('p'))
+        # app.logger.debug(f"Username: {username}")
+        # app.logger.debug(f"Password: {password}")
+        hashed = pwd_context.hash(password)
         if not pwd_context.verify(password, hashed):
-            return Response(status=400)
-        if db.userstable.find_one({'username': username}) or db.userstable.find_one({'password': hashed}):
-            return Response(status=400)
+            app.logger.debug("Password does not match hash")
+            abort(400)
+        if db.userstable.find_one({'username': username}) is not None:
+            app.logger.debug("User already exists in database")
+            abort(400)
         item = {
             'username': username,
             'password': hashed
         }
         db.userstable.insert_one(item)
-        return Response(flask.jsonify(item), status=201)
+        app.logger.debug("User successfully added")
+        # app.logger.debug(f"{db.userstable.find_one({'username': username})}")
+        return Response(status=201)
 
 
 class token(Resource):
-    def get(self, username, password, expiration=600):
-        hashed = pwd_context.encrypt(password)
+    def get(self, expiration=600):
+        app.logger.debug("Got a GET request")
+        username = str(request.args.get('u'))
+        password = str(request.args.get('p'))
+        hashed = pwd_context.hash(password)
         if not pwd_context.verify(password, hashed):
-            return Response(status=400)
-        if not db.userstable.find_one({'username': username}) or db.userstable.find_one({'password': hashed}):
-            return Response(status=400)
+            app.logger.debug("Password does not match hash")
+            abort(400)
+        if db.userstable.find_one({'username': username}) is None:
+            app.logger.debug("User not in database")
+            abort(400)
         s = Serializer(SECRET_KEY, expires_in=expiration)
-        token = s.dumps({'id': db.userstable.find_one({'username': username}, {'_id': 1}),
-                         'username': username, 'datetime': datetime.now()})
+        token = s.dumps({'id': random.randint(0, 100), 'username': username})
+        app.logger.debug("Token successfully created")
         item = {
             'token': token,
             'duration': expiration
@@ -129,8 +144,8 @@ class token(Resource):
 api.add_resource(listAll, '/listAll', '/listAll/<string:dtype>')
 api.add_resource(listOpenOnly, '/listOpenOnly', '/listOpenOnly/<string:dtype>')
 api.add_resource(listCloseOnly, '/listCloseOnly', '/listCloseOnly/<string:dtype>')
-api.add_resource(register, '/register/<string:username>/<string:password>')
-api.add_resource(token, '/token/<string:username>/<string:password>')
+api.add_resource(register, '/register')
+api.add_resource(token, '/token')
 
 
 # Run the application
