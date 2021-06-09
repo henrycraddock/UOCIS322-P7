@@ -1,9 +1,9 @@
+import random
+
 import flask
 import requests
-import os
 from urllib.parse import urlparse, urljoin
 from passlib.apps import custom_app_context as pwd_context
-from pymongo import MongoClient
 from flask import Flask, request, render_template, redirect, url_for, flash, abort
 from flask_login import (LoginManager, current_user, login_required,
                          login_user, logout_user, UserMixin,
@@ -22,6 +22,17 @@ class LoginForm(Form):
                           message=u"Huh, little too short for a password."),
         validators.InputRequired(u"Forget something?")])
     remember = BooleanField('Remember me')
+
+
+class RegisterForm(Form):
+    username = StringField('Username', [
+        validators.Length(min=2, max=25,
+                          message=u"Huh, little too short for a username."),
+        validators.InputRequired(u"Forget something?")])
+    password = StringField('Password', [
+        validators.Length(min=2, max=25,
+                          message=u"Huh, little too short for a password."),
+        validators.InputRequired(u"Forget something?")])
 
 
 def is_safe_url(target):
@@ -45,8 +56,6 @@ class User(UserMixin):
 
 
 app = Flask(__name__)
-client = MongoClient('mongodb://' + os.environ['MONGODB_HOSTNAME'], 27017)
-db = client.brevetsdb
 
 app.secret_key = "and the cats in the cradle and the silver spoon"
 
@@ -86,19 +95,37 @@ def selectdata():
     return render_template("selectdata.html")
 
 
+@app.route("/registration", methods=["GET", "POST"])
+def registration():
+    form = RegisterForm()
+    if form.validate_on_submit() and request.method == "POST" and "username" in request.form and "password" in request.form:
+        username = request.form["username"]
+        password = pwd_context.hash(request.form["password"])
+        assert pwd_context.verify(request.form["password"], password)
+        r = requests.post('http://restapi:5000/register' + '?u=' + username + '&p=' + password)
+        if r:
+            flash("Registered!")
+            next = request.args.get("next")
+            if not is_safe_url(next):
+                abort(400)
+            return redirect(next or url_for('login'))
+        else:
+            flash("Sorry, but you could not register.")
+    return render_template("register.html", form=form)
+
+
 @app.route("/login", methods=["GET", "POST"])
 def login():
     form = LoginForm()
     if form.validate_on_submit() and request.method == "POST" and "username" in request.form and "password" in request.form:
         username = request.form["username"]
-        password = pwd_context.encrypt(request.form["password"])
+        password = pwd_context.hash(request.form["password"])
         assert pwd_context.verify(request.form["password"], password)
-        if request.form.get('which') == 'register':
-            requests.get('http://restapi:5000/register/' + username + '/' + password)
-        if db.userstable.find_one({'username': username}):
+        token = requests.get('http://restapi:5000/token' + '?u=' + username + '&p=' + password)
+        if token:
+            app.logger.debug("Got a token!")
             remember = request.form.get("remember", "false") == "true"
-            user = User((db.userstable.find_one({'username': username}, {'_id': 1})), username)
-            token = requests.get('http://restapi:5000/token/' + username + '/' + password)
+            user = User(u"{}".format(random.randint(0, 100)), u"{}".format(username))
             user.set_token(token)
             if login_user(user, remember=remember):
                 flash("Logged in!")
@@ -110,18 +137,18 @@ def login():
             else:
                 flash("Sorry, but you could not log in.")
         else:
-            flash(u"Invalid username.")
+            flash(u"Invalid username and/or password.")
     return render_template("login.html", form=form)
 
 
 @app.route('/listdata', methods=["POST"])
 def listdata():
     app.logger.debug("Got a form submission")
-    if flask.request.form.get('dtype') is '':
+    if flask.request.form.get('dtype') == '':
         dtype = 'json'
     else:
         dtype = flask.request.form.get('dtype')
-    if flask.request.form.get('topk') is not '':
+    if flask.request.form.get('topk') != '':
         topk = flask.request.form.get('topk')
     else:
         topk = '0'
@@ -129,7 +156,7 @@ def listdata():
     app.logger.debug(f"dtype: {dtype}")
     app.logger.debug(f"topk: {topk}")
     app.logger.debug(f"which: {which}")
-    r = requests.get('http://restapi:5000/' + which + '/' + dtype + '?top=' + topk)
+    r = requests.get('http://restapi:5000/' + which + '/' + dtype + '?top=' + topk + '?token=' + current_user.token)
     return render_template('listdata.html', data=r.text)
 
 
