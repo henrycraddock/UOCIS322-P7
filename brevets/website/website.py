@@ -3,8 +3,8 @@ import random
 import flask
 import requests
 from urllib.parse import urlparse, urljoin
-from passlib.apps import custom_app_context as pwd_context
-from flask import Flask, request, render_template, redirect, url_for, flash, abort
+from passlib.hash import sha256_crypt as pwd_context
+from flask import Flask, request, render_template, redirect, url_for, flash, abort, session
 from flask_login import (LoginManager, current_user, login_required,
                          login_user, logout_user, UserMixin,
                          confirm_login, fresh_login_required)
@@ -45,9 +45,8 @@ def is_safe_url(target):
 
 
 class User(UserMixin):
-    def __init__(self, id, name):
+    def __init__(self, id):
         self.id = id
-        self.name = name
         self.token = "Unknown"
 
     def set_token(self, token):
@@ -77,7 +76,9 @@ login_manager.needs_refresh_message_category = "info"
 
 @login_manager.user_loader
 def load_user(user_id):
-    return User.get(user_id)
+    user = User(user_id)
+    user.set_token(session["token"])
+    return user
 
 
 login_manager.init_app(app)
@@ -100,11 +101,11 @@ def registration():
     form = RegisterForm()
     if form.validate_on_submit() and request.method == "POST" and "username" in request.form and "password" in request.form:
         username = request.form["username"]
-        password = pwd_context.hash(request.form["password"])
-        assert pwd_context.verify(request.form["password"], password)
+        password = pwd_context.using(salt="hashing").hash(request.form["password"])
+        assert pwd_context.using(salt="hashing").verify(request.form["password"], password)
         r = requests.post('http://restapi:5000/register' + '?u=' + username + '&p=' + password)
         if r:
-            flash("Registered!")
+            flash("Registered! Now log in")
             next = request.args.get("next")
             if not is_safe_url(next):
                 abort(400)
@@ -119,14 +120,16 @@ def login():
     form = LoginForm()
     if form.validate_on_submit() and request.method == "POST" and "username" in request.form and "password" in request.form:
         username = request.form["username"]
-        password = pwd_context.hash(request.form["password"])
-        assert pwd_context.verify(request.form["password"], password)
+        session["username"] = u"{}".format(username)
+        password = pwd_context.using(salt="hashing").hash(request.form["password"])
+        assert pwd_context.using(salt="hashing").verify(request.form["password"], password)
         token = requests.get('http://restapi:5000/token' + '?u=' + username + '&p=' + password)
         if token:
             app.logger.debug("Got a token!")
+            token_data = token.json()
+            session["token"] = str(token_data["token"])
             remember = request.form.get("remember", "false") == "true"
-            user = User(u"{}".format(random.randint(0, 100)), u"{}".format(username))
-            user.set_token(token)
+            user = load_user(session["username"])
             if login_user(user, remember=remember):
                 flash("Logged in!")
                 flash("I'll remember you") if remember else None
@@ -144,7 +147,7 @@ def login():
 @app.route('/listdata', methods=["POST"])
 def listdata():
     app.logger.debug("Got a form submission")
-    if flask.request.form.get('dtype') == '':
+    if flask.request.form.get('dtype') is None:
         dtype = 'json'
     else:
         dtype = flask.request.form.get('dtype')
@@ -156,13 +159,14 @@ def listdata():
     app.logger.debug(f"dtype: {dtype}")
     app.logger.debug(f"topk: {topk}")
     app.logger.debug(f"which: {which}")
-    r = requests.get('http://restapi:5000/' + which + '/' + dtype + '?top=' + topk + '?token=' + current_user.token)
+    r = requests.get('http://restapi:5000/' + which + '/' + dtype + '?top=' + topk + '&token=' + current_user.token)
     return render_template('listdata.html', data=r.text)
 
 
 @app.route("/logout")
 @login_required
 def logout():
+    session.pop('username', None)
     logout_user()
     flash("Logged out.")
     return redirect(url_for("index"))
